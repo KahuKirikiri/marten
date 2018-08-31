@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,7 +8,6 @@ using System.Text.RegularExpressions;
 using Baseline;
 using Baseline.Reflection;
 using Marten.Linq;
-using Marten.Schema.Arguments;
 using Marten.Schema.Identity;
 using Marten.Schema.Identity.Sequences;
 using Marten.Services.Includes;
@@ -35,14 +34,13 @@ namespace Marten.Schema
         public const string DeletedAtColumn = "mt_deleted_at";
 
         private static readonly Regex _aliasSanitizer = new Regex("<|>", RegexOptions.Compiled);
-        
+
         private readonly StoreOptions _storeOptions;
 
         private readonly IList<SubClassMapping> _subClasses = new List<SubClassMapping>();
         private string _alias;
         private string _databaseSchemaName;
         private MemberInfo _idMember;
-
 
         public DocumentMapping(Type documentType, StoreOptions storeOptions) : base("d.data", documentType, storeOptions)
         {
@@ -59,7 +57,6 @@ namespace Marten.Schema
         }
 
         public TenancyStyle TenancyStyle { get; set; } = TenancyStyle.Single;
-
 
         public MemberInfo VersionMember
         {
@@ -113,8 +110,6 @@ namespace Marten.Schema
         public DbObjectName InsertFunction => new DbObjectName(DatabaseSchemaName, $"{InsertPrefix}{_alias}");
         public DbObjectName UpdateFunction => new DbObjectName(DatabaseSchemaName, $"{UpdatePrefix}{_alias}");
         public DbObjectName OverwriteFunction => new DbObjectName(DatabaseSchemaName, $"{OverwritePrefix}{_alias}");
-
-
 
         public string DatabaseSchemaName
         {
@@ -218,7 +213,7 @@ namespace Marten.Schema
 
             var assignerType = typeof(IdAssigner<,>).MakeGenericType(typeof(T), idType);
 
-            return (IdAssignment<T>) Activator.CreateInstance(assignerType, IdMember, IdStrategy);
+            return (IdAssignment<T>)Activator.CreateInstance(assignerType, IdMember, IdStrategy);
         }
 
         public IQueryableDocument ToQueryableDocument()
@@ -237,6 +232,7 @@ namespace Marten.Schema
 
         public IIdGeneration IdStrategy { get; set; }
 
+        public IDocumentMapping Root => this;
         public Type DocumentType { get; }
 
         public virtual DbObjectName Table => new DbObjectName(DatabaseSchemaName, $"{TablePrefix}{_alias}");
@@ -246,13 +242,11 @@ namespace Marten.Schema
             get { return _idMember; }
             set
             {
-                
-
                 _idMember = value;
 
                 if (_idMember != null && !_idMember.GetMemberType().IsOneOf(typeof(int), typeof(Guid), typeof(long), typeof(string)))
                 {
-                    throw new ArgumentOutOfRangeException(nameof(IdMember),"Id members must be an int, long, Guid, or string");
+                    throw new ArgumentOutOfRangeException(nameof(IdMember), "Id members must be an int, long, Guid, or string");
                 }
 
                 if (_idMember != null)
@@ -269,8 +263,8 @@ namespace Marten.Schema
         public virtual string[] SelectFields()
         {
             return IsHierarchy()
-                ? new[] {"data", "id", DocumentTypeColumn, VersionColumn}
-                : new[] {"data", "id", VersionColumn};
+                ? new[] { "data", "id", DocumentTypeColumn, VersionColumn }
+                : new[] { "data", "id", VersionColumn };
         }
 
         public PropertySearching PropertySearching { get; set; } = PropertySearching.JSON_Locator_Only;
@@ -278,10 +272,6 @@ namespace Marten.Schema
         public bool StructuralTyped { get; set; }
 
         public string DdlTemplate { get; set; }
-
-
-
-
 
         public static DocumentMapping<T> For<T>(string databaseSchemaName = StoreOptions.DefaultDatabaseSchemaName,
             Func<IDocumentMapping, StoreOptions, IIdGeneration> idGeneration = null)
@@ -297,14 +287,14 @@ namespace Marten.Schema
 
         public static MemberInfo FindIdMember(Type documentType)
         {
-            return (MemberInfo) GetProperties(documentType).FirstOrDefault(x => x.Name.EqualsIgnoreCase("id") || x.HasAttribute<IdentityAttribute>())
+            return (MemberInfo)GetProperties(documentType).FirstOrDefault(x => x.Name.EqualsIgnoreCase("id") || x.HasAttribute<IdentityAttribute>())
                    ?? documentType.GetFields().FirstOrDefault(x => x.Name.EqualsIgnoreCase("id") || x.HasAttribute<IdentityAttribute>());
         }
 
         private static PropertyInfo[] GetProperties(Type type)
         {
             return type.GetTypeInfo().IsInterface
-                ? new[] {type}
+                ? new[] { type }
                     .Concat(type.GetInterfaces())
                     .SelectMany(i => i.GetProperties()).ToArray()
                 : type.GetProperties();
@@ -363,7 +353,6 @@ namespace Marten.Schema
             return subClassMapping.DocumentType;
         }
 
-
         public IndexDefinition AddGinIndexToData()
         {
             var index = AddIndex("data");
@@ -389,7 +378,7 @@ namespace Marten.Schema
             if (DeleteStyle != DeleteStyle.SoftDelete)
                 throw new InvalidOperationException($"DocumentMapping for {DocumentType.FullName} is not configured to use Soft Delete");
 
-            var index = new IndexDefinition(this, DeletedAtColumn) {Modifier = $"WHERE {DeletedColumn}"};
+            var index = new IndexDefinition(this, DeletedAtColumn) { Modifier = $"WHERE {DeletedColumn}" };
             configure?.Invoke(index);
             Indexes.Add(index);
 
@@ -410,12 +399,46 @@ namespace Marten.Schema
             return index;
         }
 
+        public IIndexDefinition AddUniqueIndex(MemberInfo[][] members, UniqueIndexType indexType = UniqueIndexType.Computed, string indexName = null, IndexMethod indexMethod = IndexMethod.btree)
+        {
+            if (indexType == UniqueIndexType.DuplicatedField)
+            {
+                var fields = members.Select(memberPath => DuplicateField(memberPath)).ToList();
+
+                var index = AddIndex(fields.Select(m => m.ColumnName).ToArray());
+                index.IndexName = indexName;
+                index.Method = indexMethod;
+                index.IsUnique = true;
+
+                return index;
+            }
+            else
+            {
+                var index = new ComputedIndex(
+                    this,
+                    members)
+                {
+                    Method = indexMethod,
+                    IndexName = indexName,
+                    IsUnique = true
+                };
+
+                var existing = Indexes.OfType<ComputedIndex>().FirstOrDefault(x => x.IndexName == index.IndexName);
+                if (existing != null)
+                {
+                    return existing;
+                }
+                Indexes.Add(index);
+
+                return index;
+            }
+        }
+
         public ForeignKeyDefinition AddForeignKey(string memberName, Type referenceType)
         {
             var field = FieldFor(memberName);
             return AddForeignKey(field.Members, referenceType);
         }
-
 
         public ForeignKeyDefinition AddForeignKey(MemberInfo[] members, Type referenceType)
         {
@@ -495,7 +518,6 @@ namespace Marten.Schema
             return _subClasses.Any() || DocumentType.GetTypeInfo().IsAbstract || DocumentType.GetTypeInfo().IsInterface;
         }
 
-
         private static string defaultDocumentAliasName(Type documentType)
         {
             var nameToAlias = documentType.Name;
@@ -503,7 +525,7 @@ namespace Marten.Schema
             {
                 nameToAlias = _aliasSanitizer.Replace(documentType.GetPrettyName(), string.Empty).Replace(",", "_");
             }
-            var parts = new List<string> {nameToAlias.ToLower()};
+            var parts = new List<string> { nameToAlias.ToLower() };
             if (documentType.IsNested)
             {
                 parts.Insert(0, documentType.DeclaringType.Name.ToLower());
@@ -511,11 +533,6 @@ namespace Marten.Schema
 
             return string.Join("_", parts);
         }
-
-
-
-
-
 
         public DuplicatedField DuplicateField(string memberName, string pgType = null)
         {
@@ -602,6 +619,7 @@ namespace Marten.Schema
 
         Type IFeatureSchema.StorageType => DocumentType;
         public string Identifier => Alias.ToLowerInvariant();
+
         public void WritePermissions(DdlRules rules, StringWriter writer)
         {
             var template = DdlTemplate.IsNotEmpty()
@@ -618,12 +636,11 @@ namespace Marten.Schema
         public DocumentMapping(StoreOptions storeOptions) : base(typeof(T), storeOptions)
         {
             var configure = typeof(T).GetMethod("ConfigureMarten", BindingFlags.Static | BindingFlags.Public);
-            configure?.Invoke(null, new object[] {this});
-
+            configure?.Invoke(null, new object[] { this });
         }
 
         /// <summary>
-        /// Marks a property or field on this document type as a searchable field that is also duplicated in the 
+        /// Marks a property or field on this document type as a searchable field that is also duplicated in the
         /// database document table
         /// </summary>
         /// <param name="expression"></param>
@@ -643,7 +660,7 @@ namespace Marten.Schema
         /// <summary>
         /// Programmatically directs Marten to map all the subclasses of <cref name="T"/> to a hierarchy of types
         /// </summary>
-        /// <param name="allSubclassTypes">All the subclass types of <cref name="T"/> that you wish to map. 
+        /// <param name="allSubclassTypes">All the subclass types of <cref name="T"/> that you wish to map.
         /// You can use either params of <see cref="Type"/> or <see cref="MappedType"/> or a mix, since Type can implicitly convert to MappedType (without an alias)</param>
         /// <returns></returns>
         public void AddSubClassHierarchy(params MappedType[] allSubclassTypes)
@@ -668,7 +685,6 @@ namespace Marten.Schema
                 .Where(t => t.GetTypeInfo().IsSubclassOf(baseType) || baseType.GetTypeInfo().IsInterface && t.GetInterfaces().Contains(baseType))
                 .Select(t => (MappedType)t).ToList();
 
-
             allSubclassTypes.Each<MappedType>(subclassType =>
                 AddSubClass(
                     subclassType.Type,
@@ -679,18 +695,53 @@ namespace Marten.Schema
         }
 
         /// <summary>
-        /// Adds a computed index 
+        /// Adds a computed index
         /// </summary>
         /// <param name="expression"></param>
         /// <param name="configure"></param>
         public void Index(Expression<Func<T, object>> expression, Action<ComputedIndex> configure = null)
         {
-            var visitor = new FindMembers();
-            visitor.Visit(expression);
+            Index(new[] {expression}, configure);
+        }
 
-            var index = new ComputedIndex(this, visitor.Members.ToArray());
+        /// <summary>
+        /// Adds a computed index
+        /// </summary>
+        /// <param name="expressions"></param>
+        /// <param name="configure"></param>
+        public void Index(IReadOnlyCollection<Expression<Func<T, object>>> expressions, Action<ComputedIndex> configure = null)
+        {
+            MemberInfo[][] members = expressions
+                .Select(e =>
+                {
+                    var visitor = new FindMembers();
+                    visitor.Visit(e);
+                    return visitor.Members.ToArray();
+                }).ToArray();
+
+
+            var index = new ComputedIndex(this, members);
             configure?.Invoke(index);
             Indexes.Add(index);
+        }
+
+        public void UniqueIndex(params Expression<Func<T, object>>[] expressions)
+        {
+            UniqueIndex(UniqueIndexType.Computed, expressions);
+        }
+
+        public void UniqueIndex(UniqueIndexType indexType, params Expression<Func<T, object>>[] expressions)
+        {
+            AddUniqueIndex(
+                expressions
+                .Select(e =>
+                {
+                    var visitor = new FindMembers();
+                    visitor.Visit(e);
+                    return visitor.Members.ToArray();
+                })
+                .ToArray(),
+                indexType);
         }
 
         public void ForeignKey<TReference>(

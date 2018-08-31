@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq.Expressions;
+using System.Reflection;
 using Baseline;
 using Marten.Schema;
 
@@ -41,16 +42,29 @@ namespace Marten.Linq.Parsing
 
             var field = mapping.FieldFor(members);
 
+	        object value;
 
-            var value = field.GetValue(valueExpression);
-            var jsonLocator = field.SqlLocator;
+	        if (valueExpression is MemberExpression memberAccess)
+	        {
+		        var membersOther = FindMembers.Determine(memberAccess);
+		        var fieldOther = mapping.FieldFor(membersOther);
+		        value = fieldOther.SqlLocator;
+	        }
+	        else
+	        {
+		        memberAccess = null;
+				value = field.GetValue(valueExpression);
+	        }
+
+	        var jsonLocator = field.SqlLocator;
 
             var useContainment = mapping.PropertySearching == PropertySearching.ContainmentOperator || field.ShouldUseContainmentOperator();
 
             var isDuplicated = (mapping.FieldFor(members) is DuplicatedField);
+            var isEnumString = field.MemberType.GetTypeInfo().IsEnum && serializer.EnumStorage == EnumStorage.AsString;
 
             if (useContainment &&
-                expression.NodeType == ExpressionType.Equal && value != null && !isDuplicated)
+                expression.NodeType == ExpressionType.Equal && value != null && !isDuplicated && !isEnumString)
             {
                 return new ContainmentWhereFragment(serializer, expression, _wherePrefix);
             }
@@ -81,11 +95,15 @@ namespace Marten.Linq.Parsing
                 op = _operators[ExpressionType.NotEqual];
             }
 
+	        if (memberAccess != null)
+	        {
+		        return new WhereFragment($"{_wherePrefix}{jsonLocator} {op} {value}");
+			}
             var whereFormat = isValueExpressionOnRight ? "{0} {1} ?" : "? {1} {0}";
             return new WhereFragment($"{_wherePrefix}{whereFormat.ToFormat(jsonLocator, op)}", value);
 
            
-            return value == null ? new WhereFragment($"({jsonLocator}) {_isOperator} null") : new WhereFragment($"{_wherePrefix}({jsonLocator}) {op} ?", value);
+            //return value == null ? new WhereFragment($"({jsonLocator}) {_isOperator} null") : new WhereFragment($"{_wherePrefix}({jsonLocator}) {op} ?", value);
         }
         private static object moduloByValue(BinaryExpression binary)
         {

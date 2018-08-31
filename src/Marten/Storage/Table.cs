@@ -23,6 +23,21 @@ namespace Marten.Storage
         public IList<ForeignKeyDefinition> ForeignKeys { get; } = new List<ForeignKeyDefinition>();
         public IList<IIndexDefinition> Indexes { get; } = new List<IIndexDefinition>();
 
+        public IEnumerable<DbObjectName> AllNames()
+        {
+            yield return Identifier;
+
+            foreach (var index in Indexes)
+            {
+                yield return new DbObjectName(Identifier.Schema, index.IndexName);
+            }
+
+            foreach (var fk in ForeignKeys)
+            {
+                yield return new DbObjectName(Identifier.Schema, fk.KeyName);
+            }
+        }
+
         public Table(DbObjectName name)
         {
             Identifier = name;
@@ -195,7 +210,8 @@ FROM pg_index AS idx
     ON i.relam = am.oid
   JOIN pg_namespace AS NS ON i.relnamespace = NS.OID
   JOIN pg_user AS U ON i.relowner = U.usesysid
-WHERE 
+WHERE
+  nspname = :{schemaParam} AND
   NOT nspname LIKE 'pg%' AND 
   i.relname like 'mt_%';
 

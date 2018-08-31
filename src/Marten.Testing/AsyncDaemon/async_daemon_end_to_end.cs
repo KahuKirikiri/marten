@@ -33,7 +33,7 @@ namespace Marten.Testing.AsyncDaemon
         private readonly IDaemonLogger _logger;
 
 
-
+        
 
         [Fact]
         public async Task do_a_complete_rebuild_of_the_active_projects_from_scratch_on_other_schema_single_event()
@@ -48,9 +48,7 @@ namespace Marten.Testing.AsyncDaemon
 
             _testHelper.PublishAllProjectEvents(theStore, true);
 
-
-            
-
+            // SAMPLE: rebuild-single-projection
             using (var daemon = theStore.BuildProjectionDaemon(logger: _logger, settings: new DaemonSettings
             {
                 LeadingEdgeBuffer = 0.Seconds()
@@ -58,9 +56,43 @@ namespace Marten.Testing.AsyncDaemon
             {
                 await daemon.Rebuild<ActiveProject>().ConfigureAwait(false);
             }
+            // ENDSAMPLE
 
             _testHelper.CompareActiveProjects(theStore);
             
+        }
+
+        [Fact]
+        public async Task start_and_stop_a_projection()
+        {
+            _testHelper.LoadSingleProject();
+
+            StoreOptions(_ =>
+            {
+                _.Events.AsyncProjections.AggregateStreamsWith<ActiveProject>();
+                _.Events.DatabaseSchemaName = "events";
+            });
+
+            _testHelper.PublishAllProjectEvents(theStore, true);
+
+
+
+            // Really just kind of a smoke test here
+            using (var daemon = theStore.BuildProjectionDaemon(logger: _logger, settings: new DaemonSettings
+            {
+                LeadingEdgeBuffer = 0.Seconds()
+            }))
+            {
+                daemon.Start<ActiveProject>(DaemonLifecycle.Continuous);
+                await Task.Delay(200);
+                await daemon.Stop<ActiveProject>().ConfigureAwait(false);
+
+                daemon.Start<ActiveProject>(DaemonLifecycle.StopAtEndOfEventData);
+
+            }
+
+
+
         }
 
 

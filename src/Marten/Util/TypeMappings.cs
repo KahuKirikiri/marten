@@ -19,8 +19,8 @@ namespace Marten.Util
             {typeof (Boolean), "boolean"},
             {typeof (double), "double precision"},
             {typeof (decimal), "decimal"},
-            {typeof(float), "decimal" },
-            {typeof(DateTime), "timestamp without time zone" },
+            {typeof (float), "decimal" },
+            {typeof (DateTime), "timestamp without time zone" },
             {typeof (DateTimeOffset), "timestamp with time zone"},
             {typeof (IDictionary<,>), "jsonb" },
         };
@@ -34,7 +34,7 @@ namespace Marten.Util
                 .FirstOrDefault(
                     x =>
                         x.Name == "ToNpgsqlDbType" && x.GetParameters().Count() == 1 &&
-                        x.GetParameters().Single().ParameterType == typeof (Type));
+                        x.GetParameters().Single().ParameterType == typeof(Type));
         }
 
         public static string ConvertSynonyms(string type)
@@ -52,15 +52,19 @@ namespace Marten.Util
                 case "integer":
                     return "int";
 
+                case "integer[]":
+                    return "int[]";
+
                 case "decimal":
                 case "numeric":
                     return "decimal";
 
+                case "timestamp without time zone":
+                    return "timestamp";
 
                 case "timestamp with time zone":
                     return "timestamptz";
             }
-
 
             return type;
         }
@@ -111,12 +115,17 @@ namespace Marten.Util
         {
             if (type.IsNullable()) return ToDbType(type.GetInnerTypeFromNullable());
 
-            return (NpgsqlDbType) _getNgpsqlDbTypeMethod.Invoke(null, new object[] {type});
+            return (NpgsqlDbType)_getNgpsqlDbTypeMethod.Invoke(null, new object[] { type });
         }
 
         public static string GetPgType(Type memberType)
         {
             if (memberType.GetTypeInfo().IsEnum) return "integer";
+
+            if (memberType.IsArray)
+            {
+                return GetPgType(memberType.GetElementType()) + "[]";
+            }
 
             if (memberType.IsNullable())
             {
@@ -131,7 +140,6 @@ namespace Marten.Util
 
                 return "jsonb";
             }
-            
 
             return PgTypes.ContainsKey(memberType) ? PgTypes[memberType] : "jsonb";
         }
@@ -154,7 +162,7 @@ namespace Marten.Util
                 return enumStyle == EnumStorage.AsInteger ? "({0})::int".ToFormat(locator) : locator;
             }
 
-			// Treat "unknown" PgTypes as jsonb (this way null checks of arbitary depth won't fail on cast).
+            // Treat "unknown" PgTypes as jsonb (this way null checks of arbitary depth won't fail on cast).
             return "CAST({0} as {1})".ToFormat(locator, GetPgType(memberType));
         }
 
