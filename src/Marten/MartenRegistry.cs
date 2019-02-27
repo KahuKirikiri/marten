@@ -7,6 +7,7 @@ using Marten.Schema;
 using Marten.Schema.Identity;
 using Marten.Schema.Identity.Sequences;
 using Marten.Storage;
+using NpgsqlTypes;
 
 namespace Marten
 {
@@ -122,9 +123,9 @@ namespace Marten
             /// <param name="configure">Optional, allows you to customize the Postgresql database index configured for the duplicated field</param>
             /// <returns></returns>
             [Obsolete("Prefer Index() if you just want to optimize querying, or choose Duplicate() if you really want a duplicated field")]
-            public DocumentMappingExpression<T> Searchable(Expression<Func<T, object>> expression, string pgType = null, Action<IndexDefinition> configure = null)
+            public DocumentMappingExpression<T> Searchable(Expression<Func<T, object>> expression, string pgType = null, NpgsqlDbType? dbType = null, Action<IndexDefinition> configure = null)
             {
-                return Duplicate(expression, pgType, configure);
+                return Duplicate(expression, pgType, dbType, configure);
             }
 
             /// <summary>
@@ -134,10 +135,14 @@ namespace Marten
             /// <param name="expression"></param>
             /// <param name="pgType">Optional, overrides the Postgresql column type for the duplicated field</param>
             /// <param name="configure">Optional, allows you to customize the Postgresql database index configured for the duplicated field</param>
+            /// <param name="dbType">Optional, overrides the Npgsql DbType for any parameter usage of this property</param>
             /// <returns></returns>
-            public DocumentMappingExpression<T> Duplicate(Expression<Func<T, object>> expression, string pgType = null, Action<IndexDefinition> configure = null)
+            public DocumentMappingExpression<T> Duplicate(Expression<Func<T, object>> expression, string pgType = null, NpgsqlDbType? dbType = null, Action<IndexDefinition> configure = null)
             {
-                alter = mapping => mapping.Duplicate(expression, pgType, configure);
+                alter = mapping =>
+                {
+                    mapping.Duplicate(expression, pgType, dbType, configure);
+                };
                 return this;
             }
 
@@ -182,12 +187,39 @@ namespace Marten
             /// <summary>
             /// Creates a unique index on this data member within the JSON data storage
             /// </summary>
-            /// <param name="isComputed"></param>
+            /// <param name="indexName">Name of the index</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(string indexName, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexName, expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexType">Type of the index</param>
             /// <param name="expressions"></param>
             /// <returns></returns>
             public DocumentMappingExpression<T> UniqueIndex(UniqueIndexType indexType, params Expression<Func<T, object>>[] expressions)
             {
                 alter = m => m.UniqueIndex(indexType, expressions);
+
+                return this;
+            }
+
+            /// <summary>
+            /// Creates a unique index on this data member within the JSON data storage
+            /// </summary>
+            /// <param name="indexType">Type of the index</param>
+            /// <param name="indexName">Name of the index</param>
+            /// <param name="expressions"></param>
+            /// <returns></returns>
+            public DocumentMappingExpression<T> UniqueIndex(UniqueIndexType indexType, string indexName, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.UniqueIndex(indexType, indexName, expressions);
 
                 return this;
             }
@@ -201,6 +233,36 @@ namespace Marten
             {
                 alter = m => m.AddLastModifiedIndex(configure);
 
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(string regConfig = Schema.FullTextIndex.DefaultRegConfig, Action<FullTextIndex> configure = null)
+            {
+                alter = m => m.AddFullTextIndex(regConfig, configure);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(Action<FullTextIndex> configure)
+            {
+                alter = m => m.AddFullTextIndex(Schema.FullTextIndex.DefaultRegConfig, configure);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(params Expression<Func<T, object>>[] expressions)
+            {
+                FullTextIndex(Schema.FullTextIndex.DefaultRegConfig, expressions);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(string regConfig, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.FullTextIndex(regConfig, expressions);
+                return this;
+            }
+
+            public DocumentMappingExpression<T> FullTextIndex(Action<FullTextIndex> configure, params Expression<Func<T, object>>[] expressions)
+            {
+                alter = m => m.FullTextIndex(configure, expressions);
                 return this;
             }
 

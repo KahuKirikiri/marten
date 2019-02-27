@@ -1,14 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>Postgresql as a Document Db and Event Store for .Net Development</Description>
-    <VersionPrefix>2.10.0</VersionPrefix>
-    <Authors>Jeremy D. Miller;Tim Cools;Jeff Doolittle;James Hopper</Authors>
+    <VersionPrefix>3.4.0</VersionPrefix>
+    <Authors>Jeremy D. Miller;Babu Annamalai;Oskar Dudycz</Authors>
     <TargetFrameworks>net46;netstandard2.0</TargetFrameworks>
     <AssemblyName>Marten</AssemblyName>
     <PackageId>Marten</PackageId>
     <PackageIconUrl>http://jasperfx.github.io/marten/content/images/emblem.png</PackageIconUrl>
     <PackageProjectUrl>http://jasperfx.github.io/marten</PackageProjectUrl>
-    <PackageLicenseUrl>https://github.com/JasperFX/marten/blob/master/LICENSE.txt</PackageLicenseUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <GenerateAssemblyTitleAttribute>true</GenerateAssemblyTitleAttribute>
     <GenerateAssemblyDescriptionAttribute>true</GenerateAssemblyDescriptionAttribute>
     <GenerateAssemblyProductAttribute>true</GenerateAssemblyProductAttribute>
@@ -16,12 +16,17 @@
     <GenerateAssemblyVersionAttribute>true</GenerateAssemblyVersionAttribute>
     <GenerateAssemblyFileVersionAttribute>true</GenerateAssemblyFileVersionAttribute>
     <GenerateAssemblyInformationalVersionAttribute>true</GenerateAssemblyInformationalVersionAttribute>
+    <LangVersion>7.2</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(OS)' != 'Windows_NT' AND '$(TargetFramework)'== 'net46'">
     <FrameworkPathOverride>$(NuGetPackageRoot)microsoft.targetingpack.netframework.v4.6/1.0.1/lib/net46/</FrameworkPathOverride>
     <RestoreAdditionalProjectSources>https://dotnet.myget.org/F/dotnet-core/api/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
   <ItemGroup>
+    <None Remove="Schema\SQL\mt_immutable_timestamptz.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Schema\SQL\mt_immutable_timestamptz.sql" />
     <EmbeddedResource Include="Schema\SQL\mt_transforms.js" />
     <EmbeddedResource Include="Schema\SQL\mt_patching.js" />
     <EmbeddedResource Include="Schema\SQL\mt_mark_event_progression.sql" />
@@ -31,10 +36,12 @@
     <EmbeddedResource Include="Schema\SchemaObjects.sql" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="9.0.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
+    <PackageReference Include="Npgsql" Version="4.0.3" />
+    <PackageReference Include="Npgsql.Json.NET" Version="1.0.0" />
     <PackageReference Include="Remotion.Linq" Version="2.1.1" />
-    <PackageReference Include="Npgsql" Version="3.2.5" />
     <PackageReference Include="Baseline" Version="1.3.0" />
+    <PackageReference Include="System.Memory" Version="4.5.1" />
     <PackageReference Include="System.Threading.Tasks.Dataflow" Version="4.7.0" />
     <PackageReference Include="System.Reflection.Emit.Lightweight" Version="4.3.0" />
   </ItemGroup>
@@ -50,7 +57,17 @@
     <Reference Include="System.Transactions" />
   </ItemGroup>
   <ItemGroup Condition="'$(OS)' != 'Windows_NT' AND '$(TargetFramework)'== 'net46'">
-      <PackageReference Include="Microsoft.TargetingPack.NETFramework.v4.6"
-                        Version="1.0.1" ExcludeAssets="All" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.TargetingPack.NETFramework.v4.6" Version="1.0.1" ExcludeAssets="All" PrivateAssets="All" />
+  </ItemGroup>
+  <!--SourceLink specific settings-->
+  <PropertyGroup>
+    <RepositoryUrl>https://github.com/JasperFx/marten.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0-beta2-18618-05" PrivateAssets="All" />
   </ItemGroup>
 </Project>

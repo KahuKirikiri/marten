@@ -1,41 +1,69 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Baseline;
+using Npgsql;
+using Npgsql.TypeMapping;
 using NpgsqlTypes;
 
 namespace Marten.Util
 {
     public static class TypeMappings
     {
-        private static readonly Dictionary<Type, string> PgTypes = new Dictionary<Type, string>
-        {
-            {typeof (int), "integer"},
-            {typeof (long), "bigint"},
-            {typeof (Guid), "uuid"},
-            {typeof (string), "varchar"},
-            {typeof (Boolean), "boolean"},
-            {typeof (double), "double precision"},
-            {typeof (decimal), "decimal"},
-            {typeof (float), "decimal" },
-            {typeof (DateTime), "timestamp without time zone" },
-            {typeof (DateTimeOffset), "timestamp with time zone"},
-            {typeof (IDictionary<,>), "jsonb" },
-        };
-
-        private static readonly MethodInfo _getNgpsqlDbTypeMethod;
+        private static readonly Ref<ImHashMap<Type, string>> PgTypeMemo;
+        private static readonly Ref<ImHashMap<Type, NpgsqlDbType?>> NpgsqlDbTypeMemo;
 
         static TypeMappings()
         {
-            var type = Type.GetType("Npgsql.TypeHandlerRegistry, Npgsql");
-            _getNgpsqlDbTypeMethod = type.GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
-                .FirstOrDefault(
-                    x =>
-                        x.Name == "ToNpgsqlDbType" && x.GetParameters().Count() == 1 &&
-                        x.GetParameters().Single().ParameterType == typeof(Type));
+            // Initialize PgTypeMemo with Types which are not available in Npgsql mappings
+            PgTypeMemo = Ref.Of(ImHashMap<Type, string>.Empty);
+
+            PgTypeMemo.Swap(d => d.AddOrUpdate(typeof(long), "bigint"));
+            PgTypeMemo.Swap(d => d.AddOrUpdate(typeof(string), "varchar"));
+            PgTypeMemo.Swap(d => d.AddOrUpdate(typeof(float), "decimal"));
+
+            // Default Npgsql mapping is 'numeric' but we are using 'decimal'
+            PgTypeMemo.Swap(d => d.AddOrUpdate(typeof(decimal), "decimal"));
+
+            // Default Npgsql mappings is 'timestamp' but we are using 'timestamp without time zone'
+            PgTypeMemo.Swap(d => d.AddOrUpdate(typeof(DateTime), "timestamp without time zone"));
+
+            NpgsqlDbTypeMemo = Ref.Of(ImHashMap<Type, NpgsqlDbType?>.Empty);
         }
+
+        // Lazily retrieve the CLR type to NpgsqlDbType and PgTypeName mapping from exposed INpgsqlTypeMapper.Mappings.
+        // This is lazily calculated instead of precached because it allows consuming code to register
+        // custom npgsql mappings prior to execution.
+        private static string ResolvePgType(Type type)
+        {
+            if (PgTypeMemo.Value.TryFind(type, out var value)) return value;
+
+            value = GetTypeMapping(type)?.PgTypeName;
+
+            PgTypeMemo.Swap(d => d.AddOrUpdate(type, value));
+
+            return value;
+        }
+
+        private static NpgsqlDbType? ResolveNpgsqlDbType(Type type)
+        {
+            if (NpgsqlDbTypeMemo.Value.TryFind(type, out var value)) return value;
+
+            value = GetTypeMapping(type)?.NpgsqlDbType;
+
+            NpgsqlDbTypeMemo.Swap(d => d.AddOrUpdate(type, value));
+
+            return value;
+        }
+
+        private static NpgsqlTypeMapping GetTypeMapping(Type type)
+            => NpgsqlConnection
+                .GlobalTypeMapper
+                .Mappings
+                .FirstOrDefault(mapping => mapping.ClrTypes.Contains(type));
 
         public static string ConvertSynonyms(string type)
         {
@@ -83,6 +111,7 @@ namespace Marten.Util
                 .Replace('\r', ' ')
                 .Replace('\t', ' ')
                 .ReplaceMultiSpace(" ")
+                .Replace(" ;", ";")
                 .Replace("SECURITY INVOKER", "")
                 .Replace("  ", " ")
                 .Replace("LANGUAGE plpgsql AS $function$", "")
@@ -111,37 +140,69 @@ namespace Marten.Util
                 .Replace("  ", " ").TrimEnd().TrimEnd(';');
         }
 
+        /// <summary>
+        /// Some portion of implementation adapted from Npgsql GlobalTypeMapper.ToNpgsqlDbType(Type type)
+        /// https://github.com/npgsql/npgsql/blob/dev/src/Npgsql/TypeMapping/GlobalTypeMapper.cs
+        /// Possibly this method can be trimmed down when Npgsql eventually exposes ToNpgsqlDbType
+        /// </summary>
         public static NpgsqlDbType ToDbType(Type type)
         {
+            var npgsqlDbType = ResolveNpgsqlDbType(type);
+            if (npgsqlDbType != null)
+            {
+                return npgsqlDbType.Value;
+            }
+
             if (type.IsNullable()) return ToDbType(type.GetInnerTypeFromNullable());
 
-            return (NpgsqlDbType)_getNgpsqlDbTypeMethod.Invoke(null, new object[] { type });
+            if (type.IsEnum) return NpgsqlDbType.Integer;
+
+            if (type.IsArray)
+            {
+                if (type == typeof(byte[]))
+                    return NpgsqlDbType.Bytea;
+                return NpgsqlDbType.Array | ToDbType(type.GetElementType());
+            }
+
+            var typeInfo = type.GetTypeInfo();
+
+            var ilist = typeInfo.ImplementedInterfaces.FirstOrDefault(x => x.GetTypeInfo().IsGenericType && x.GetGenericTypeDefinition() == typeof(IList<>));
+            if (ilist != null)
+                return NpgsqlDbType.Array | ToDbType(ilist.GetGenericArguments()[0]);
+
+            if (typeInfo.IsGenericType && type.GetGenericTypeDefinition() == typeof(NpgsqlRange<>))
+                return NpgsqlDbType.Range | ToDbType(type.GetGenericArguments()[0]);
+
+            if (type == typeof(DBNull))
+                return NpgsqlDbType.Unknown;
+
+            throw new NotSupportedException("Can't infer NpgsqlDbType for type " + type);
         }
 
-        public static string GetPgType(Type memberType)
+        public static string GetPgType(Type memberType, EnumStorage enumStyle)
         {
-            if (memberType.GetTypeInfo().IsEnum) return "integer";
+            if (memberType.IsEnum)
+            {
+                return enumStyle == EnumStorage.AsInteger ? "integer" : "varchar";
+            }
 
             if (memberType.IsArray)
             {
-                return GetPgType(memberType.GetElementType()) + "[]";
+                return GetPgType(memberType.GetElementType(), enumStyle) + "[]";
             }
 
             if (memberType.IsNullable())
             {
-                return GetPgType(memberType.GetInnerTypeFromNullable());
+                return GetPgType(memberType.GetInnerTypeFromNullable(), enumStyle);
             }
 
             if (memberType.IsConstructedGenericType)
             {
                 var templateType = memberType.GetGenericTypeDefinition();
-
-                if (PgTypes.ContainsKey(templateType)) return PgTypes[templateType];
-
-                return "jsonb";
+                return ResolvePgType(templateType) ?? "jsonb";
             }
 
-            return PgTypes.ContainsKey(memberType) ? PgTypes[memberType] : "jsonb";
+            return ResolvePgType(memberType) ?? "jsonb";
         }
 
         public static bool HasTypeMapping(Type memberType)
@@ -152,18 +213,18 @@ namespace Marten.Util
             }
 
             // more complicated later
-            return PgTypes.ContainsKey(memberType) || memberType.GetTypeInfo().IsEnum;
+            return ResolvePgType(memberType) != null || memberType.IsEnum;
         }
 
         public static string ApplyCastToLocator(this string locator, EnumStorage enumStyle, Type memberType)
         {
-            if (memberType.GetTypeInfo().IsEnum)
+            if (memberType.IsEnum)
             {
                 return enumStyle == EnumStorage.AsInteger ? "({0})::int".ToFormat(locator) : locator;
             }
 
             // Treat "unknown" PgTypes as jsonb (this way null checks of arbitary depth won't fail on cast).
-            return "CAST({0} as {1})".ToFormat(locator, GetPgType(memberType));
+            return "CAST({0} as {1})".ToFormat(locator, GetPgType(memberType, enumStyle));
         }
 
         public static bool IsDate(this object value)

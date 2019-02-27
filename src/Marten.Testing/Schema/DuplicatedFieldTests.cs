@@ -11,7 +11,7 @@ namespace Marten.Testing.Schema
 {
     public class DuplicatedFieldTests
     {
-        private DuplicatedField theField = new DuplicatedField(EnumStorage.AsInteger, new MemberInfo[] { ReflectionHelper.GetProperty<User>(x => x.FirstName)});
+        private DuplicatedField theField = new DuplicatedField(EnumStorage.AsInteger, new MemberInfo[] { ReflectionHelper.GetProperty<User>(x => x.FirstName) });
 
         [Fact]
         public void default_role_is_search()
@@ -59,8 +59,15 @@ namespace Marten.Testing.Schema
             var constant = Expression.Constant((int)Colors.Blue);
 
             field.GetValue(constant).ShouldBe(Colors.Blue.ToString());
-
         }
 
+        [Theory]
+        [InlineData(EnumStorage.AsInteger, "color = (data ->> 'Color')::int")]
+        [InlineData(EnumStorage.AsString, "color = data ->> 'Color'")]
+        public void storage_is_set_when_passed_in(EnumStorage storageMode, string expectedUpdateFragment)
+        {
+            var field = DuplicatedField.For<Target>(storageMode, x => x.Color);
+            field.UpdateSqlFragment().ShouldBe(expectedUpdateFragment);
+        }
     }
 }

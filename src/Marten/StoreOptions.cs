@@ -20,7 +20,6 @@ namespace Marten
     /// </summary>
     public class StoreOptions
     {
-
         /// <summary>
         ///     The default database schema used 'public'.
         /// </summary>
@@ -31,10 +30,8 @@ namespace Marten
         private readonly ConcurrentDictionary<Type, ConcurrentDictionary<string, ChildDocument>> _childDocs
             = new ConcurrentDictionary<Type, ConcurrentDictionary<string, ChildDocument>>();
 
-
-        public StorageFeatures Storage { get; } 
+        public StorageFeatures Storage { get; }
         public readonly IList<IInitialData> InitialData = new List<IInitialData>();
-
 
         /// <summary>
         ///     Add, remove, or reorder global session listeners
@@ -50,16 +47,19 @@ namespace Marten
 
         private IMartenLogger _logger = new NulloMartenLogger();
         private ISerializer _serializer;
+        private EnumStorage? _duplicatedFieldEnumStorage;
+
+        private IRetryPolicy _retryPolicy = new NulloRetryPolicy();
 
         /// <summary>
         ///     Whether or Marten should attempt to create any missing database schema objects at runtime. This
         ///     property is "All" by default for more efficient development, but can be set to lower values for production usage.
         /// </summary>
-        public AutoCreate AutoCreateSchemaObjects = AutoCreate.All;
-        
+        public AutoCreate AutoCreateSchemaObjects = AutoCreate.CreateOrUpdate;
+
         /// <summary>
         /// Configure Marten to create databases for tenants in case databases do not exist or need to be dropped & re-created
-        /// </summary>        
+        /// </summary>
         /// <remarks>Creating and dropping databases requires the CREATEDB privilege</remarks>
         public void CreateDatabasesForTenants(Action<IDatabaseCreationExpressions> configure)
         {
@@ -120,7 +120,6 @@ namespace Marten
 
         public ITransforms Transforms { get; }
 
-
         /// <summary>
         ///     Allows you to modify how the DDL for document tables and upsert functions is
         ///     written
@@ -134,6 +133,29 @@ namespace Marten
         ///     for more information. This does NOT adjust NAMEDATALEN for you.
         /// </summary>
         public int NameDataLength { get; set; } = 64;
+
+        /// <summary>
+        ///     Gets Enum values stored as either integers or strings
+        /// </summary>
+        public EnumStorage EnumStorage => Serializer().EnumStorage;
+
+        /// <summary>
+        ///     Sets Enum values stored as either integers or strings for DuplicatedField.
+        ///     Please use only for migration from Marten 2.*. It might be removed in the next major version.
+        /// </summary>
+        [Obsolete("Please use only for migration from Marten 2.*. It might be removed in the next major version.")]
+        public EnumStorage DuplicatedFieldEnumStorage
+        {
+            get { return _duplicatedFieldEnumStorage ?? EnumStorage; }
+            set { _duplicatedFieldEnumStorage = value; }
+        }
+
+        /// <summary>
+        ///     Decides if `timestamp without time zone` database type should be used for `DateTime` DuplicatedField.
+        ///     Please use only for migration from Marten 2.*. It might be removed in the next major version.
+        /// </summary>
+        [Obsolete("Please use only for migration from Marten 2.*. It might be removed in the next major versions")]
+        public bool DuplicatedFieldUseTimestampWithoutTimeZoneForDateTime { get; set; } = true;
 
         internal void CreatePatching()
         {
@@ -198,7 +220,7 @@ namespace Marten
         /// <param name="casing">Casing style to be used in serialization</param>
         public void UseDefaultSerialization(EnumStorage enumStyle = EnumStorage.AsInteger, Casing casing = Casing.Default)
         {
-            Serializer(new JsonNetSerializer {EnumStorage = enumStyle, Casing = casing});
+            Serializer(new JsonNetSerializer { EnumStorage = enumStyle, Casing = casing });
         }
 
         /// <summary>
@@ -215,7 +237,6 @@ namespace Marten
             return _serializer ?? new JsonNetSerializer();
         }
 
-
         public IMartenLogger Logger()
         {
             return _logger ?? new NulloMartenLogger();
@@ -224,6 +245,16 @@ namespace Marten
         public void Logger(IMartenLogger logger)
         {
             _logger = logger;
+        }
+
+        public IRetryPolicy RetryPolicy()
+        {
+            return _retryPolicy ?? new NulloRetryPolicy();
+        }
+
+        public void RetryPolicy(IRetryPolicy retryPolicy)
+        {
+            _retryPolicy = retryPolicy;
         }
 
         /// <summary>
@@ -264,7 +295,6 @@ namespace Marten
             throw new PostgresqlIdentifierTooLongException(NameDataLength, name);
         }
 
-
         internal void ApplyConfiguration()
         {
             Schema.Apply(this);
@@ -273,7 +303,7 @@ namespace Marten
             {
                 mapping.Validate();
             }
-		}
+        }
 
         public ITenancy Tenancy { get; set; }
 
@@ -319,7 +349,7 @@ namespace Marten
                 return OnDocuments(new T());
             }
 
-            public PoliciesExpression OnDocuments(IDocumentPolicy policy) 
+            public PoliciesExpression OnDocuments(IDocumentPolicy policy)
             {
                 _parent._policies.Add(policy);
                 return this;

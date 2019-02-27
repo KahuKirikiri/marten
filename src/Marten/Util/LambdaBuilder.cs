@@ -39,7 +39,6 @@ namespace Marten.Util
             return ExpressionCompiler.Compile<Action<TTarget, TProperty>>(lambda);
         }
 
-
         public static Func<TTarget, TField> GetField<TTarget, TField>(FieldInfo field)
         {
             var target = Expression.Parameter(typeof(TTarget), "target");
@@ -60,7 +59,6 @@ namespace Marten.Util
                 : GetField<TTarget, TMember>(member.As<FieldInfo>());
         }
 
-
         public static Action<TTarget, TField> SetField<TTarget, TField>(FieldInfo field)
         {
             var target = Expression.Parameter(typeof(TTarget), "target");
@@ -73,7 +71,6 @@ namespace Marten.Util
 
             return ExpressionCompiler.Compile<Action<TTarget, TField>>(lambda);
         }
-
 
         public static Action<TTarget, TMember> Setter<TTarget, TMember>(MemberInfo member)
         {
@@ -98,36 +95,66 @@ namespace Marten.Util
             return ExpressionCompiler.Compile<Func<TTarget, TValue>>(lambda);
         }
 
-
-
-        private static readonly MethodInfo _getName = typeof(Enum).GetMethod(nameof(Enum.GetName), BindingFlags.Static | BindingFlags.Public);
+        private static readonly MethodInfo _getEnumStringValue = typeof(Enum).GetMethod(nameof(Enum.GetName), BindingFlags.Static | BindingFlags.Public);
+        private static readonly MethodInfo _getEnumIntValue = typeof(Convert).GetMethods(BindingFlags.Static | BindingFlags.Public).Single(mi => mi.Name == nameof(Convert.ToInt32) && mi.GetParameters().Count() == 1 && mi.GetParameters().Single().ParameterType == typeof(object));
+        private static readonly Expression _trueConstant = Expression.Constant(true);
 
         public static Expression ToExpression(EnumStorage enumStorage, MemberInfo[] members, ParameterExpression target)
         {
-            Expression body = target;
-            foreach (var member in members)
+            // Builds expression to retrieve value including enum conversion and null checks:
+            // Simple property/field                 target => target.Property
+            // Enum conversion to int                target => Convert.ToInt32(target.EnumProperty)
+            // Enum conversion to string             target => Enum.GetName(type, target.EnumProperty)
+            // Nested property/field null checks     target => target.Inner != null ? target.Inner.Property : default()
+
+            Expression NullCheck(Expression accessor)
             {
-                if (member is PropertyInfo)
-                {
-                    var propertyInfo = member.As<PropertyInfo>();
-                    var getMethod = propertyInfo.GetGetMethod();
-
-                    body = Expression.Call(body, getMethod);
-                }
-                else
-                {
-                    var field = member.As<FieldInfo>();
-                    body = Expression.Field(body, field);
-                }
-
-                var memberType = members.Last().GetMemberType();
-                if (memberType.GetTypeInfo().IsEnum && enumStorage == EnumStorage.AsString)
-                {
-                    body = Expression.Call(_getName, Expression.Constant(memberType), Expression.Convert(body, typeof(object)));
-                }
+                return accessor.Type.IsValueType && !accessor.Type.IsNullableOfT()
+                    ? _trueConstant
+                    : Expression.NotEqual(accessor, Expression.Constant(null, accessor.Type));
             }
 
-            return body;
+            Expression AddToNullChecks(Expression nullChecks, Expression accessor)
+            {
+                var check = NullCheck(accessor);
+                return check == _trueConstant
+                    ? nullChecks
+                    : Expression.AndAlso(nullChecks, check);
+            }
+
+            Expression ConvertEnumExpression(Type type, Expression accessor)
+            {
+                return enumStorage == EnumStorage.AsString
+                    ? Expression.Call(_getEnumStringValue, Expression.Constant(type),
+                        Expression.Convert(accessor, typeof(object)))
+                    : Expression.Call(_getEnumIntValue,
+                        Expression.Convert(accessor, typeof(object)));
+            }
+
+            // Build accessor and null checks expressions.
+            var aggregatedExpressions = members.Aggregate(new
+                {
+                    Accessor = (Expression) target,
+                    NullChecks = NullCheck(target)
+                },
+                (acc, member) =>
+                {
+                    var memberType = member.GetMemberType();
+                    var accessor = (Expression) Expression.PropertyOrField(acc.Accessor, member.Name);
+                    return new
+                    {
+                        Accessor = memberType.GetTypeInfo().IsEnum
+                            ? ConvertEnumExpression(memberType, accessor)
+                            : accessor,
+                        NullChecks = AddToNullChecks(acc.NullChecks, accessor)
+                    };
+                });
+
+            // If there are potential nulls add condition.
+            return aggregatedExpressions.NullChecks == _trueConstant
+                ? aggregatedExpressions.Accessor
+                : Expression.Condition(aggregatedExpressions.NullChecks, aggregatedExpressions.Accessor,
+                    Expression.Default(aggregatedExpressions.Accessor.Type));
         }
     }
 }

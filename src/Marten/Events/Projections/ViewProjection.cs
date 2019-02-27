@@ -13,7 +13,7 @@ using Marten.Util;
 
 namespace Marten.Events.Projections
 {
-    public class ViewProjection<TView, TId> : DocumentProjection<TView>, IDocumentProjection 
+    public class ViewProjection<TView, TId> : DocumentProjection<TView>, IDocumentProjection
         where TView : class, new()
     {
         private readonly Func<IQuerySession, TId[], IReadOnlyList<TView>> _sessionLoadMany;
@@ -475,6 +475,7 @@ namespace Marten.Events.Projections
             where TEvent : class
         {
             if (viewIdsSelector == null) throw new ArgumentNullException(nameof(viewIdsSelector));
+
             return projectEvent(
                 null, 
                 (session, @event, streamId) => viewIdsSelector(session, @event as TEvent),
@@ -820,7 +821,7 @@ namespace Marten.Events.Projections
                     var genericEventType = typeof(ProjectionEvent<>).MakeGenericType(eventType);
                     if (_handlers.TryGetValue(genericEventType, out handler))
                     {
-                        appendProjections(projections, handler, session, streamEvent, genericEventType, true);
+                        appendProjections(projections, handler, session, streamEvent, genericEventType, true /* Yeah, genericEventType would always be ProjectionEvent<>. */);
                     }
                 }
             }
@@ -838,20 +839,31 @@ namespace Marten.Events.Projections
                     streamEvent.Id,
                     streamEvent.Version,
                     // Inline projections don't have the timestamp set, set it manually
-                    timestamp == default(DateTime) ? DateTime.UtcNow : timestamp,
-                    streamEvent.Data);
+                    timestamp == default ? DateTime.UtcNow : timestamp,
+                    streamEvent.Sequence, 
+                    streamEvent.StreamId, 
+                    streamEvent.StreamKey, 
+                    streamEvent.TenantId,
+                    streamEvent.Data
+                );
             }
 
             if (handler.IdSelector != null)
             {
                 var viewId = handler.IdSelector(session, isProjectionEvent ? projectionEvent : streamEvent.Data, streamEvent.StreamId);
-                projections.Add(new EventProjection(handler, viewId, streamEvent, projectionEvent));
+                if (!EqualityComparer<TId>.Default.Equals(viewId, default))
+                {
+                    projections.Add(new EventProjection(handler, viewId, streamEvent, projectionEvent));
+                }
             }
             else
             {
                 foreach (var viewId in handler.IdsSelector(session, isProjectionEvent ? projectionEvent : streamEvent.Data, streamEvent.StreamId))
                 {
-                    projections.Add(new EventProjection(handler, viewId, streamEvent, projectionEvent));
+                    if (!EqualityComparer<TId>.Default.Equals(viewId, default))
+                    {
+                        projections.Add(new EventProjection(handler, viewId, streamEvent, projectionEvent));
+                    }
                 }
             }
         }
@@ -882,12 +894,20 @@ namespace Marten.Events.Projections
         public int Version { get; protected set; }
         public DateTime Timestamp { get; protected set; }
         public T Data { get; protected set; }
+        public long Sequence { get; protected set; }
+        public Guid StreamId { get; protected set; }
+        public string StreamKey { get; protected set; }
+        public string TenantId { get; protected set; }
 
-        public ProjectionEvent(Guid id, int version, DateTime timestamp, T data)
+        public ProjectionEvent(Guid id, int version, DateTime timestamp, long sequence, Guid streamId, string streamKey, string tenantId, T data)
         {
             Id = id;
             Version = version;
             Timestamp = timestamp;
+            Sequence = sequence;
+            StreamId = streamId;
+            StreamKey = streamKey;
+            TenantId = tenantId;
             Data = data;
         }
     }

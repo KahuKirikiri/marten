@@ -13,36 +13,55 @@ namespace Marten.Schema
 {
     public class DuplicatedField : Field, IField
     {
-        private readonly NpgsqlDbType _dbType;
-        private readonly EnumStorage _enumStorage;
         private readonly Func<Expression, object> _parseObject = expression => expression.Value();
+        private readonly bool useTimestampWithoutTimeZoneForDateTime;
         private string _columnName;
 
-        public DuplicatedField(EnumStorage enumStorage, MemberInfo[] memberPath) : base(memberPath)
+        public DuplicatedField(EnumStorage enumStorage, MemberInfo[] memberPath, bool useTimestampWithoutTimeZoneForDateTime = true) : base(enumStorage, memberPath)
         {
-            _enumStorage = enumStorage;
-            _dbType = TypeMappings.ToDbType(MemberType);
-
-
             ColumnName = MemberName.ToTableAlias();
+            this.useTimestampWithoutTimeZoneForDateTime = useTimestampWithoutTimeZoneForDateTime;
 
-            if (MemberType.GetTypeInfo().IsEnum)
+            if (MemberType.IsEnum)
             {
-                _parseObject = expression =>
+                if (enumStorage == EnumStorage.AsString)
                 {
-                    var raw = expression.Value();
-                    return Enum.GetName(MemberType, raw);
-                };
+                    DbType = NpgsqlDbType.Varchar;
+                    PgType = "varchar";
 
-                _dbType = NpgsqlDbType.Varchar;
-                PgType = "varchar";
+                    _parseObject = expression =>
+                    {
+                        var raw = expression.Value();
+                        return Enum.GetName(MemberType, raw);
+                    };
+                }
+                else
+                {
+                    DbType = NpgsqlDbType.Integer;
+                    PgType = "integer";
+                }
             }
             else if (MemberType.IsDateTime())
             {
+                PgType = this.useTimestampWithoutTimeZoneForDateTime ? "timestamp without time zone" : "timestamp with time zone";
+                DbType = this.useTimestampWithoutTimeZoneForDateTime ? NpgsqlDbType.Timestamp : NpgsqlDbType.TimestampTz;
+            }
+            else if (MemberType == typeof(DateTimeOffset) || MemberType == typeof(DateTimeOffset?))
+            {
                 PgType = "timestamp with time zone";
-                _dbType = NpgsqlDbType.TimestampTZ;
+                DbType = NpgsqlDbType.TimestampTz;
+            }
+            else
+            {
+                DbType = TypeMappings.ToDbType(MemberType);
             }
         }
+
+        /// <summary>
+        /// Used to override the assigned DbType used by Npgsql when a parameter
+        /// is used in a query against this column
+        /// </summary>
+        public NpgsqlDbType DbType { get; set; }
 
         public DuplicatedFieldRole Role { get; set; } = DuplicatedFieldRole.Search;
 
@@ -52,9 +71,8 @@ namespace Marten.Schema
             Column = ColumnName.ToLower(),
             PostgresType = PgType,
             Members = Members,
-            DbType = _dbType
+            DbType = DbType
         };
-
 
         public string SelectionLocator => SqlLocator;
 
@@ -100,10 +118,9 @@ namespace Marten.Schema
             return $"{rootTableAlias}.{_columnName}";
         }
 
-
         public string SqlLocator { get; set; }
 
-        public static DuplicatedField For<T>(EnumStorage enumStorage, Expression<Func<T, object>> expression)
+        public static DuplicatedField For<T>(EnumStorage enumStorage, Expression<Func<T, object>> expression, bool useTimestampWithoutTimeZoneForDateTime = true)
         {
             var accessor = ReflectionHelper.GetAccessor(expression);
 
@@ -113,11 +130,10 @@ namespace Marten.Schema
                 throw new NotSupportedException("Not yet supporting deep properties yet. Soon.");
             }
 
-
-            return new DuplicatedField(enumStorage, new MemberInfo[] {accessor.InnerProperty});
+            return new DuplicatedField(enumStorage, new MemberInfo[] { accessor.InnerProperty }, useTimestampWithoutTimeZoneForDateTime);
         }
 
-        // I say you don't need a ForeignKey 
+        // I say you don't need a ForeignKey
         public virtual TableColumn ToColumn()
         {
             return new TableColumn(ColumnName, PgType);

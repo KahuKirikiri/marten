@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Baseline;
@@ -124,17 +124,20 @@ namespace Marten.Testing
 
         public int[] NumberArray { get; set; }
 
+        public string[] TagsArray { get; set; }
+
+        public HashSet<string> TagsHashSet { get; set; }
 
         public Target[] Children { get; set; }
 
         public int? NullableNumber { get; set; }
         public DateTime? NullableDateTime { get; set; }
         public bool? NullableBoolean { get; set; }
+        public Colors? NullableColor { get; set; }
 
-        public IDictionary<string,string> StringDict { get; set; }
+        public IDictionary<string, string> StringDict { get; set; }
 
         public Guid UserId { get; set; }
-
     }
 
     public class Address

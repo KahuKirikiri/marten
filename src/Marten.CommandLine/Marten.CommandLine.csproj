@@ -2,14 +2,14 @@
 
   <PropertyGroup>
     <Description>Command line tooling for managing Marten development</Description>
-    <VersionPrefix>2.10.0</VersionPrefix>
-    <Authors>Jeremy D. Miller;Tim Cools;Jeff Doolittle</Authors>
+    <VersionPrefix>3.4.0</VersionPrefix>
+    <Authors>Jeremy D. Miller;Babu Annamalai;Oskar Dudycz</Authors>
     <TargetFrameworks>net46;netstandard2.0</TargetFrameworks>
     <AssemblyName>Marten.CommandLine</AssemblyName>
     <PackageId>Marten.CommandLine</PackageId>
     <PackageIconUrl>http://jasperfx.github.io/marten/content/images/emblem.png</PackageIconUrl>
     <PackageProjectUrl>http://jasperfx.github.io/marten</PackageProjectUrl>
-    <PackageLicenseUrl>https://github.com/JasperFX/marten/blob/master/LICENSE.txt</PackageLicenseUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
     <GenerateAssemblyDescriptionAttribute>false</GenerateAssemblyDescriptionAttribute>
@@ -49,4 +49,15 @@
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
 
+  <!--SourceLink specific settings-->
+  <PropertyGroup>
+    <RepositoryUrl>https://github.com/JasperFx/marten.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0-beta2-18618-05" PrivateAssets="All"/>
+  </ItemGroup>
 </Project>

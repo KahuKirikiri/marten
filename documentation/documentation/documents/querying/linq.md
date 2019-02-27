@@ -189,6 +189,14 @@ To find one of for an array you can use this strategy:
 
 <[sample:is_one_of_array]>
 
+## IsSupersetOf
+
+<[sample:is_superset_of]>
+
+## IsSubsetOf
+
+<[sample:is_subset_of]>
+
 ## Modulo Queries
 
 Marten v0.8 added the ability to use the modulo operator in Linq queries:
@@ -202,6 +210,32 @@ Query data from all tenants using `AnyTenant` method.
 ## TenantIsOneOf
 Use `TenantIsOneOf` to query on a selected list of tenants.
 <[sample:tenant_is_one_of]>
+
+## Text Search
+
+Postgres contains built in [Text Search functions](https://www.postgresql.org/docs/10/textsearch-controls.html). They enable the possibility to do more sophisticated searching through text fields. Marten gives possibility to define <[linkto:documentation/documents/configuration/full_text;title=Full Text Indexes]> and perform queries on them.
+Currently three types of full Text Search functions are supported:
+
+* regular Search (to_tsquery)
+
+<[sample:search_in_query_sample]>
+
+* plain text Search (plainto_tsquery)
+
+<[sample:plain_search_in_query_sample]>
+
+* phrase Search (phraseto_tsquery)
+
+<[sample:phrase_search_in_query_sample]>
+
+All types of Text Searches can be combined with other Linq queries
+
+<[sample:text_search_combined_with_other_query_sample]>
+
+They allow also to specify language (regConfig) of the text search query (by default `english` is being used)
+
+<[sample:text_search_with_non_default_regConfig_sample]>
+
 
 ## Supported Types
 

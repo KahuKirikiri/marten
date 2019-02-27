@@ -13,6 +13,7 @@ using Marten.Schema.Identity.Sequences;
 using Marten.Services.Includes;
 using Marten.Storage;
 using Marten.Util;
+using NpgsqlTypes;
 using Remotion.Linq;
 
 namespace Marten.Schema
@@ -117,6 +118,16 @@ namespace Marten.Schema
             set { _databaseSchemaName = value; }
         }
 
+        public EnumStorage EnumStorage
+        {
+            get { return _storeOptions.EnumStorage; }
+        }
+
+        public EnumStorage DuplicatedFieldEnumStorage
+        {
+            get { return _storeOptions.DuplicatedFieldEnumStorage; }
+        }
+
         public DuplicatedField[] DuplicatedFields => fields().OfType<DuplicatedField>().ToArray();
 
         public string Alias
@@ -196,7 +207,7 @@ namespace Marten.Schema
 
             var closedType = resolverType.MakeGenericType(DocumentType);
 
-            return Activator.CreateInstance(closedType, options.Serializer(), this)
+            return Activator.CreateInstance(closedType, this)
                 .As<IDocumentStorage>();
         }
 
@@ -434,6 +445,52 @@ namespace Marten.Schema
             }
         }
 
+        /// <summary>
+        /// Adds a full text index
+        /// </summary>
+        /// <param name="regConfig">The dictionary to used by the 'to_tsvector' function, defaults to 'english'.</param>
+        /// <param name="configure">Optional action to further configure the full text index</param>
+        /// <remarks>
+        /// See: https://www.postgresql.org/docs/10/static/textsearch-controls.html#TEXTSEARCH-PARSING-DOCUMENTS
+        /// </remarks>
+        public FullTextIndex AddFullTextIndex(string regConfig = FullTextIndex.DefaultRegConfig, Action<FullTextIndex> configure = null)
+        {
+            var index = new FullTextIndex(this, regConfig);
+            configure?.Invoke(index);
+
+            return AddFullTextIndexIfDoesNotExist(index);
+        }
+
+        /// <summary>
+        /// Adds a full text index
+        /// </summary>
+        /// <param name="members">Document fields that should be use by full text index</param>
+        /// <param name="regConfig">The dictionary to used by the 'to_tsvector' function, defaults to 'english'.</param>
+        /// <remarks>
+        /// See: https://www.postgresql.org/docs/10/static/textsearch-controls.html#TEXTSEARCH-PARSING-DOCUMENTS
+        /// </remarks>
+        public FullTextIndex AddFullTextIndex(MemberInfo[][] members, string regConfig = FullTextIndex.DefaultRegConfig, string indexName = null)
+        {
+            var index = new FullTextIndex(this, regConfig, members)
+            {
+                IndexName = indexName
+            };
+
+            return AddFullTextIndexIfDoesNotExist(index);
+        }
+
+        private FullTextIndex AddFullTextIndexIfDoesNotExist(FullTextIndex index)
+        {
+            var existing = Indexes.OfType<FullTextIndex>().FirstOrDefault(x => x.IndexName == index.IndexName);
+            if (existing != null)
+            {
+                return existing;
+            }
+            Indexes.Add(index);
+
+            return index;
+        }
+
         public ForeignKeyDefinition AddForeignKey(string memberName, Type referenceType)
         {
             var field = FieldFor(memberName);
@@ -537,7 +594,7 @@ namespace Marten.Schema
         public DuplicatedField DuplicateField(string memberName, string pgType = null)
         {
             var field = FieldFor(memberName);
-            var duplicate = new DuplicatedField(_storeOptions.Serializer().EnumStorage, field.Members);
+            var duplicate = new DuplicatedField(_storeOptions.DuplicatedFieldEnumStorage, field.Members, _storeOptions.DuplicatedFieldUseTimestampWithoutTimeZoneForDateTime);
             if (pgType.IsNotEmpty())
             {
                 duplicate.PgType = pgType;
@@ -552,7 +609,7 @@ namespace Marten.Schema
         {
             var memberName = members.Select(x => x.Name).Join("");
 
-            var duplicatedField = new DuplicatedField(_storeOptions.Serializer().EnumStorage, members);
+            var duplicatedField = new DuplicatedField(_storeOptions.DuplicatedFieldEnumStorage, members, _storeOptions.DuplicatedFieldUseTimestampWithoutTimeZoneForDateTime);
             if (pgType.IsNotEmpty())
             {
                 duplicatedField.PgType = pgType;
@@ -647,12 +704,15 @@ namespace Marten.Schema
         /// <param name="pgType">Optional, overrides the Postgresql column type for the duplicated field</param>
         /// <param name="configure">Optional, allows you to customize the Postgresql database index configured for the duplicated field</param>
         /// <returns></returns>
-        public void Duplicate(Expression<Func<T, object>> expression, string pgType = null, Action<IndexDefinition> configure = null)
+        public void Duplicate(Expression<Func<T, object>> expression, string pgType = null, NpgsqlDbType? dbType = null, Action<IndexDefinition> configure = null)
         {
             var visitor = new FindMembers();
             visitor.Visit(expression);
 
             var duplicateField = DuplicateField(visitor.Members.ToArray(), pgType);
+
+            if (dbType.HasValue) duplicateField.DbType = dbType.Value;
+
             var indexDefinition = AddIndex(duplicateField.ColumnName);
             configure?.Invoke(indexDefinition);
         }
@@ -701,7 +761,7 @@ namespace Marten.Schema
         /// <param name="configure"></param>
         public void Index(Expression<Func<T, object>> expression, Action<ComputedIndex> configure = null)
         {
-            Index(new[] {expression}, configure);
+            Index(new[] { expression }, configure);
         }
 
         /// <summary>
@@ -719,7 +779,6 @@ namespace Marten.Schema
                     return visitor.Members.ToArray();
                 }).ToArray();
 
-
             var index = new ComputedIndex(this, members);
             configure?.Invoke(index);
             Indexes.Add(index);
@@ -727,10 +786,20 @@ namespace Marten.Schema
 
         public void UniqueIndex(params Expression<Func<T, object>>[] expressions)
         {
-            UniqueIndex(UniqueIndexType.Computed, expressions);
+            UniqueIndex(UniqueIndexType.Computed, null, expressions);
+        }
+
+        public void UniqueIndex(string indexName, params Expression<Func<T, object>>[] expressions)
+        {
+            UniqueIndex(UniqueIndexType.Computed, indexName, expressions);
         }
 
         public void UniqueIndex(UniqueIndexType indexType, params Expression<Func<T, object>>[] expressions)
+        {
+            UniqueIndex(indexType, null, expressions);
+        }
+
+        public void UniqueIndex(UniqueIndexType indexType, string indexName, params Expression<Func<T, object>>[] expressions)
         {
             AddUniqueIndex(
                 expressions
@@ -741,7 +810,56 @@ namespace Marten.Schema
                     return visitor.Members.ToArray();
                 })
                 .ToArray(),
-                indexType);
+                indexType,
+                indexName);
+        }
+
+        /// <summary>
+        /// Adds a full text index with default region config set to 'english'
+        /// </summary>
+        /// <param name="expressions">Document fields that should be use by full text index</param>
+        /// <remarks>
+        /// See: https://www.postgresql.org/docs/10/static/textsearch-controls.html#TEXTSEARCH-PARSING-DOCUMENTS
+        /// </remarks>
+        public FullTextIndex FullTextIndex(params Expression<Func<T, object>>[] expressions)
+        {
+            return FullTextIndex(Schema.FullTextIndex.DefaultRegConfig, expressions);
+        }
+
+        /// <summary>
+        /// Adds a full text index with default region config set to 'english'
+        /// </summary>
+        /// <param name="expressions">Document fields that should be use by full text index</param>
+        /// <remarks>
+        /// See: https://www.postgresql.org/docs/10/static/textsearch-controls.html#TEXTSEARCH-PARSING-DOCUMENTS
+        /// </remarks>
+        public FullTextIndex FullTextIndex(Action<FullTextIndex> configure, params Expression<Func<T, object>>[] expressions)
+        {
+            var index = FullTextIndex(Schema.FullTextIndex.DefaultRegConfig, expressions);
+            configure(index);
+            return index;
+        }
+
+        /// <summary>
+        /// Adds a full text index
+        /// </summary>
+        /// <param name="regConfig">The dictionary to used by the 'to_tsvector' function, defaults to 'english'.</param>
+        /// <param name="expressions">Document fields that should be use by full text index</param>
+        /// <remarks>
+        /// See: https://www.postgresql.org/docs/10/static/textsearch-controls.html#TEXTSEARCH-PARSING-DOCUMENTS
+        /// </remarks>
+        public FullTextIndex FullTextIndex(string regConfig, params Expression<Func<T, object>>[] expressions)
+        {
+            return AddFullTextIndex(
+                expressions
+                .Select(e =>
+                {
+                    var visitor = new FindMembers();
+                    visitor.Visit(e);
+                    return visitor.Members.ToArray();
+                })
+                .ToArray(),
+                regConfig);
         }
 
         public void ForeignKey<TReference>(

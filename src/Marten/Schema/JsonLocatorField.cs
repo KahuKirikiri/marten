@@ -19,12 +19,12 @@ namespace Marten.Schema
 
         private readonly Func<Expression, object> _parseObject = expression => expression.Value();
 
-        public JsonLocatorField(string dataLocator, StoreOptions options, EnumStorage enumStyle, Casing casing, MemberInfo member) : base(member)
+        public JsonLocatorField(string dataLocator, StoreOptions options, EnumStorage enumStyle, Casing casing, MemberInfo member) : base(enumStyle, member)
         {
             var memberType = member.GetMemberType();
             var memberName = member.Name.FormatCase(casing);
 
-            var isStringEnum = memberType.GetTypeInfo().IsEnum && enumStyle == EnumStorage.AsString;
+            var isStringEnum = memberType.IsEnum && enumStyle == EnumStorage.AsString;
             if (memberType == typeof(string) || isStringEnum)
             {
                 SqlLocator = $"{dataLocator} ->> '{memberName}'";
@@ -36,7 +36,7 @@ namespace Marten.Schema
             }
             else if (memberType == typeof(DateTimeOffset) || memberType == typeof(DateTimeOffset?))
             {
-                SqlLocator = $"{options.DatabaseSchemaName}.mt_immutable_timestamp({dataLocator} ->> '{memberName}')";
+                SqlLocator = $"{options.DatabaseSchemaName}.mt_immutable_timestamptz({dataLocator} ->> '{memberName}')";
                 SelectionLocator = $"CAST({dataLocator} ->> '{memberName}' as {PgType})";
             }
             else if (memberType.IsArray)
@@ -63,7 +63,7 @@ namespace Marten.Schema
             }
         }
 
-        public JsonLocatorField(string dataLocator, EnumStorage enumStyle, Casing casing, MemberInfo[] members) : base(members)
+        public JsonLocatorField(string dataLocator, EnumStorage enumStyle, Casing casing, MemberInfo[] members) : base(enumStyle, members)
         {
             var locator = dataLocator;
 
@@ -76,7 +76,7 @@ namespace Marten.Schema
 
             SqlLocator = MemberType == typeof(string) ? locator : locator.ApplyCastToLocator(enumStyle, MemberType);
 
-            var isStringEnum = MemberType.GetTypeInfo().IsEnum && enumStyle == EnumStorage.AsString;
+            var isStringEnum = MemberType.IsEnum && enumStyle == EnumStorage.AsString;
             if (isStringEnum)
             {
                 _parseObject = expression =>

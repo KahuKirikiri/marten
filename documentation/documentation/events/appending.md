@@ -35,7 +35,7 @@ Or have Marten use a Guid value that you provide yourself:
 
 For stream identity (strings vs. Guids), see <[linkto:documentation/events/identity]>.
 
-Note that `StartStream` checks for and existing stream and throws `ExistingStreamIdCollisionException` if a matching stream already exists.
+Note that `StartStream` checks for an existing stream and throws `ExistingStreamIdCollisionException` if a matching stream already exists.
 
 ## Appending Events
 
@@ -49,6 +49,6 @@ If you have an existing stream, you can later append additional events with `IEv
 
 <[sample:append-events-assert-on-eventid]> 
 
-### CreateStream vs. Append
+### StartStream vs. Append
 
 Both `StartStream` and `Append` can be used to start a new event stream. The difference with the methods is that `StartStream` always checks for existing stream and throws `ExistingStreamIdCollisionException` in case the stream already exists.

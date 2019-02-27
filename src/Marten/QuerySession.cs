@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -22,7 +23,7 @@ namespace Marten
         private readonly IManagedConnection _connection;
         private readonly IQueryParser _parser;
         private readonly IIdentityMap _identityMap;
-        protected readonly CharArrayTextWriter.Pool WriterPool;
+        protected readonly MemoryPool<char> WriterPool;
         private bool _disposed;
         protected readonly DocumentStore _store;
 
@@ -39,6 +40,7 @@ namespace Marten
         }
 
         public ISerializer Serializer { get; }
+
         public Guid? VersionFor<TDoc>(TDoc entity)
         {
             var id = _store.Storage.StorageFor(typeof(TDoc)).Identity(entity);
@@ -273,7 +275,6 @@ namespace Marten
                 var resolver = storage.As<IDocumentStorage<TDoc>>();
                 var cmd = storage.LoadByArrayCommand(keys);
                 cmd.AddTenancy(_parent.Tenant);
-                
 
                 var list = new List<TDoc>();
 
@@ -321,8 +322,7 @@ namespace Marten
         {
             assertNotDisposed();
 
-            QueryStatistics stats;
-            var handler = _store.HandlerFactory.HandlerFor(query, out stats);
+            var handler = _store.HandlerFactory.HandlerFor(query, out var stats);
             return _connection.Fetch(handler, _identityMap.ForQuery(), stats, Tenant);
         }
 
@@ -352,7 +352,6 @@ namespace Marten
         }
 
         public int RequestCount => _connection.RequestCount;
-
 
         ~QuerySession()
         {
@@ -396,6 +395,36 @@ namespace Marten
         public Task<T> LoadAsync<T>(Guid id, CancellationToken token = new CancellationToken())
         {
             return loadAsync<T>(id, token);
+        }
+
+        public IReadOnlyList<TDoc> Search<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.Search(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> SearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.Search(searchTerm, regConfig)).ToListAsync();
+        }
+
+        public IReadOnlyList<TDoc> PlainTextSearch<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.PlainTextSearch(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> PlainTextSearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.PlainTextSearch(searchTerm, regConfig)).ToListAsync();
+        }
+
+        public IReadOnlyList<TDoc> PhraseSearch<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig)
+        {
+            return Query<TDoc>().Where(d => d.PhraseSearch(searchTerm, regConfig)).ToList();
+        }
+
+        public Task<IReadOnlyList<TDoc>> PhraseSearchAsync<TDoc>(string searchTerm, string regConfig = FullTextIndex.DefaultRegConfig, CancellationToken token = default)
+        {
+            return Query<TDoc>().Where(d => d.PhraseSearch(searchTerm, regConfig)).ToListAsync();
         }
     }
 }
